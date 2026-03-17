@@ -2,7 +2,14 @@ const express = require("express")
 const http = require("http")
 const { Server } = require("socket.io")
 const cors = require("cors")
+const dotenv = require("dotenv")
+
 const socketHandler = require("./socketHandler")
+const connectDB = require("./Config/db")
+
+dotenv.config()
+
+connectDB()
 
 const app = express()
 app.use(cors())
@@ -17,6 +24,6 @@ const io = new Server(server,{
 
 socketHandler(io)
 
-server.listen(5000,()=>{
+server.listen(process.env.PORT || 5000,()=>{
     console.log("Server running on port 5000")
 })

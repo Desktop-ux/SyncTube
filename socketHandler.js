@@ -1,4 +1,5 @@
 const roomManager = require("./roomManager")
+const Room = require("./models/Room")
 
 function canControl(roomId, userId) {
 
@@ -13,7 +14,7 @@ function socketHandler(io) {
 
     console.log("User connected:", socket.id)
 
-    socket.on("join_room", ({ roomId, username }) => {
+    socket.on("join_room", async ({ roomId, username }) => {
 
       console.log("join_room event:", roomId, username)
 
@@ -31,6 +32,21 @@ function socketHandler(io) {
           role
         })
 
+        await Room.create({
+          roomId,
+          host: username,
+          videoId: null,
+          playState: "pause",
+          currentTime: 0,
+          participants: [
+            {
+              userId: socket.id,
+              username,
+              role
+            }
+          ]
+        })
+
         console.log("Creating new room:", roomId)
 
       } else {
@@ -40,6 +56,19 @@ function socketHandler(io) {
           username,
           role
         })
+
+        await Room.updateOne(
+          { roomId },
+          {
+            $push: {
+              participants: {
+                userId: socket.id,
+                username,
+                role
+              }
+            }
+          }
+        )
 
         console.log("Joining existing room:", roomId)
 
@@ -60,7 +89,7 @@ function socketHandler(io) {
     })
 
 
-    socket.on("play", ({ roomId }) => {
+    socket.on("play", async ({ roomId }) => {
 
       if (!canControl(roomId, socket.id)) {
 
@@ -76,6 +105,11 @@ function socketHandler(io) {
         playState: "play"
       })
 
+      await Room.updateOne(
+        { roomId },
+        { playState: "play" }
+      )
+
       socket.to(roomId).emit("play")
 
       console.log("play event:", roomId)
@@ -83,7 +117,7 @@ function socketHandler(io) {
     })
 
 
-    socket.on("pause", ({ roomId }) => {
+    socket.on("pause", async ({ roomId }) => {
 
       if (!canControl(roomId, socket.id)) {
 
@@ -99,6 +133,11 @@ function socketHandler(io) {
         playState: "pause"
       })
 
+      await Room.updateOne(
+        { roomId },
+        { playState: "pause" }
+      )
+
       socket.to(roomId).emit("pause")
 
       console.log("pause event:", roomId)
@@ -106,7 +145,7 @@ function socketHandler(io) {
     })
 
 
-    socket.on("seek", ({ roomId, time }) => {
+    socket.on("seek", async ({ roomId, time }) => {
 
       if (!canControl(roomId, socket.id)) {
 
@@ -122,6 +161,11 @@ function socketHandler(io) {
         currentTime: time
       })
 
+      await Room.updateOne(
+        { roomId },
+        { currentTime: time }
+      )
+
       socket.to(roomId).emit("seek", { time })
 
       console.log("seek event:", roomId, time)
@@ -129,7 +173,7 @@ function socketHandler(io) {
     })
 
 
-    socket.on("change_video", ({ roomId, videoId }) => {
+    socket.on("change_video", async ({ roomId, videoId }) => {
 
       if (!canControl(roomId, socket.id)) {
 
@@ -145,6 +189,14 @@ function socketHandler(io) {
         videoId,
         currentTime: 0
       })
+
+      await Room.updateOne(
+        { roomId },
+        {
+          videoId,
+          currentTime: 0
+        }
+      )
 
       io.to(roomId).emit("change_video", { videoId })
 
@@ -174,7 +226,7 @@ function socketHandler(io) {
     })
 
 
-    socket.on("remove_participant", ({ roomId, userId }) => {
+    socket.on("remove_participant", async ({ roomId, userId }) => {
 
       const senderRole = roomManager.getUserRole(roomId, socket.id)
 
@@ -188,6 +240,15 @@ function socketHandler(io) {
 
       if (!updatedRoom) return
 
+      await Room.updateOne(
+        { roomId },
+        {
+          $pull: {
+            participants: { userId }
+          }
+        }
+      )
+
       io.to(roomId).emit("participants_update", updatedRoom.participants)
 
       io.to(userId).emit("removed_from_room")
@@ -197,11 +258,20 @@ function socketHandler(io) {
     })
 
 
-    socket.on("disconnect", () => {
+    socket.on("disconnect", async () => {
 
       const roomId = roomManager.removeUser(socket.id)
 
       if (!roomId) return
+
+      await Room.updateOne(
+        { roomId },
+        {
+          $pull: {
+            participants: { userId: socket.id }
+          }
+        }
+      )
 
       const room = roomManager.getRoom(roomId)
 
